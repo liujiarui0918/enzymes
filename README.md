@@ -26,6 +26,20 @@
   - 你可以通过修改 `--layers` 比较不同层数的训练/验证曲线。脚本支持保存最终的训练曲线图像，便于提交和分享。
 
   如果你希望我自动运行实验并提交生成的图片到远程仓库，我可以在当前环境里执行并尝试 `git add/commit/push`（需要你本地已配置远端和认证）。
+
+  最新对比实验结果
+  - 我对 `train_gin.py` 增加了 `--compare-layers` 模式，可以一次性比较多个层数并生成并列对比图。
+  - 我在本地跑了 `--compare-layers 2,4,6`（每组 100 epochs，hidden=128，dropout=0.5，weight_decay=5e-4），得到的最好配置为：
+    - 最佳层数：2 层
+    - 验证集最佳准确率（best val acc）：约 0.7167（在 epoch 45 时达到）
+  - 对比图已保存为 `compare_result_compare.png`，并已提交到远程仓库。
+
+  如何运行层数对比
+  ```
+  python train_gin.py --compare-layers 2,4,6 --epochs 100 --hidden-dim 128 --dropout 0.5 --batch-size 16 --lr 1e-3 --weight-decay 5e-4 --out compare_result.png
+  ```
+
+  我也保存了每个配置的最优模型（例如 `best_model_L2.pth`），可用于后续微调或评估。
 @article{borgwardt2005protein,
 title={Protein function prediction via graph kernels},
 author={Borgwardt, Karsten M and Ong, Cheng Soon and Sch{\"o}nauer, Stefan and Vishwanathan, SVN and Smola, Alex J and Kriegel, Hans-Peter},

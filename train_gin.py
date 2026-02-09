@@ -214,17 +214,43 @@ def plot_curves(train_losses, val_losses, train_accs, val_accs, out_path):
     print('Saved plot to', out_path)
 
 
+def plot_compare(all_histories, layer_list, out_path):
+    # all_histories: list of dicts with 'train_accs','val_accs','train_losses','val_losses'
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    for hist, l in zip(all_histories, layer_list):
+        axes[0].plot(hist['val_accs'], label=f'val acc L={l}')
+        axes[0].plot(hist['train_accs'], linestyle='--', alpha=0.6, label=f'train acc L={l}')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Accuracy')
+    axes[0].legend(loc='lower right', fontsize='small')
+    axes[0].set_title('Accuracy Comparison')
+
+    for hist, l in zip(all_histories, layer_list):
+        axes[1].plot(hist['val_losses'], label=f'val loss L={l}')
+        axes[1].plot(hist['train_losses'], linestyle='--', alpha=0.6, label=f'train loss L={l}')
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Loss')
+    axes[1].legend(loc='upper right', fontsize='small')
+    axes[1].set_title('Loss Comparison')
+
+    plt.tight_layout()
+    plt.savefig(out_path)
+    print('Saved comparison plot to', out_path)
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--layers', type=int, default=4, help='number of GIN layers')
     parser.add_argument('--hidden-dim', type=int, default=128, help='hidden dimension')
     parser.add_argument('--dropout', type=float, default=0.5, help='dropout rate')
-    parser.add_argument('--epochs', type=int, default=100, help='training epochs')
+    parser.add_argument('--epochs', type=int, default=300, help='training epochs')
     parser.add_argument('--batch-size', type=int, default=16, help='batch size')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--weight-decay', type=float, default=5e-4, help='weight decay')
     parser.add_argument('--out', type=str, default='training_curves_improved.png', help='output image path')
+    parser.add_argument('--compare-layers', type=str, default='',
+                        help='comma-separated list of layer counts to compare, e.g. "2,4,6"')
     args = parser.parse_args()
 
     data_root = os.path.join(os.path.dirname(__file__), 'raw', 'GraphRNN', 'dataset', 'ENZYMES')
@@ -250,6 +276,50 @@ def main():
     # safe access to first node's feature vector
     first_node = list(train_graphs[0].nodes(data=True))[0]
     in_dim = first_node[1]['feature'].shape[0]
+    # helper to run single experiment for given layer count
+    def run_single(layers):
+        model = GIN(in_dim=in_dim, hidden_dim=args.hidden_dim, num_layers=layers, num_classes=6, dropout=args.dropout).to(device)
+        opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode='min', factor=0.5, patience=10)
+        train_losses, val_losses = [], []
+        train_accs, val_accs = [], []
+        best_val = 0.0
+        best_epoch = 0
+        for ep in range(args.epochs):
+            tr_loss, tr_acc = train_one_epoch(model, opt, train_loader, device)
+            val_loss, val_acc = evaluate(model, val_loader, device)
+            scheduler.step(val_loss)
+            train_losses.append(tr_loss)
+            val_losses.append(val_loss)
+            train_accs.append(tr_acc)
+            val_accs.append(val_acc)
+            if val_acc > best_val:
+                best_val = val_acc
+                best_epoch = ep + 1
+                torch.save(model.state_dict(), os.path.join(os.path.dirname(__file__), f'best_model_L{layers}.pth'))
+            print(f'Epoch {ep+1:3d} | L={layers} | Train Loss: {tr_loss:.4f} | Train Acc: {tr_acc:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}')
+        history = {'train_losses': train_losses, 'val_losses': val_losses,
+                   'train_accs': train_accs, 'val_accs': val_accs,
+                   'best_val': best_val, 'best_epoch': best_epoch}
+        return history
+
+    # compare mode: run multiple layer configs sequentially and save combined plot
+    if args.compare_layers:
+        layer_list = [int(x) for x in args.compare_layers.split(',') if x.strip()]
+        all_hist = []
+        best_overall = {'layers': None, 'val': 0.0, 'epoch': None}
+        for l in layer_list:
+            print('\nRunning experiment for layers =', l)
+            hist = run_single(l)
+            all_hist.append(hist)
+            if hist['best_val'] > best_overall['val']:
+                best_overall = {'layers': l, 'val': hist['best_val'], 'epoch': hist['best_epoch']}
+        cmp_out = os.path.join(os.path.dirname(__file__), args.out.replace('.png', '_compare.png'))
+        plot_compare(all_hist, layer_list, cmp_out)
+        print('Best config:', best_overall)
+        return
+
+    # otherwise run single experiment with provided --layers
     model = GIN(in_dim=in_dim, hidden_dim=args.hidden_dim, num_layers=args.layers, num_classes=6, dropout=args.dropout).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode='min', factor=0.5, patience=10)
