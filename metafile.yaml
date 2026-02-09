@@ -1,0 +1,19 @@
+displayName: ENZYMES
+labelTypes:
+- Classification
+license:
+- Unknown
+mediaTypes:
+- Text
+paperUrl: http://www.ong-home.my/papers/borgwardt05protfunction.pdf
+publishDate: "2005"
+publishUrl: https://github.com/snap-stanford/GraphRNN/tree/master/dataset/ENZYMES
+publisher:
+- University of Munich
+- NICTA
+tags:
+- Protein
+taskTypes:
+- Graph Classification
+- Protein Function Prediction
+‌​‌‌​​​​‌​​​‌‌‌‌‌​​‌‌​‌​‌​​‌​​​‌‌​‌‌‌​‌‌‌​​‌‌‌‌​‌​​​‌​‌‌‌​​‌‌‌‌​‌​‌‌​​‌‌‌​​‌‌‌‌​‌​​‌‌‌​‌
