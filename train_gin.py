@@ -49,6 +49,11 @@ class EnzymesDataset(Dataset):
         G = self.graphs[idx]
         nodes = list(G.nodes(data=True))
         features = np.vstack([n[1]['feature'] for n in nodes]).astype(np.float32)
+        # per-graph standardization
+        mu = features.mean(axis=0, keepdims=True)
+        sigma = features.std(axis=0, keepdims=True)
+        sigma[sigma == 0] = 1.0
+        features = (features - mu) / (sigma + 1e-8)
         adj = nx.to_numpy_array(G, nodelist=[n[0] for n in nodes]).astype(np.float32)
         label = G.graph.get('label', 0)
         return features, adj, int(label)
@@ -73,22 +78,34 @@ def collate_fn(batch):
 
 
 class MLP(nn.Module):
-    def __init__(self, in_dim, hidden_dim):
+    def __init__(self, in_dim, hidden_dim, dropout=0.0):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden_dim),
             nn.ReLU(),
+            nn.BatchNorm1d(hidden_dim),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim)
         )
 
     def forward(self, x):
-        return self.net(x)
+        # x: (B, N, D) or (M, D)
+        orig_shape = None
+        if x.dim() == 3:
+            B, N, D = x.size()
+            x = x.view(B * N, D)
+            orig_shape = (B, N)
+        out = self.net(x)
+        if orig_shape is not None:
+            B, N = orig_shape
+            out = out.view(B, N, -1)
+        return out
 
 
 class GINLayer(nn.Module):
-    def __init__(self, in_dim, out_dim, eps=0.0):
+    def __init__(self, in_dim, out_dim, eps=0.0, dropout=0.0):
         super().__init__()
-        self.mlp = MLP(in_dim, out_dim)
+        self.mlp = MLP(in_dim, out_dim, dropout=dropout)
         self.eps = nn.Parameter(torch.tensor(eps))
 
     def forward(self, x, adj):
@@ -102,29 +119,35 @@ class GINLayer(nn.Module):
 
 
 class GIN(nn.Module):
-    def __init__(self, in_dim, hidden_dim, num_layers, num_classes):
+    def __init__(self, in_dim, hidden_dim, num_layers, num_classes, dropout=0.0):
         super().__init__()
         self.layers = nn.ModuleList()
         # first layer
         self.layers.append(GINLayer(in_dim, hidden_dim))
         for _ in range(num_layers - 1):
-            self.layers.append(GINLayer(hidden_dim, hidden_dim))
+            self.layers.append(GINLayer(hidden_dim, hidden_dim, dropout=dropout))
+        # classifier will take concatenated pooled outputs from all layers (JK style)
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim * num_layers, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, num_classes)
         )
+        self.num_layers = num_layers
 
     def forward(self, x, adj, mask):
         # x: (B, N, D), adj: (B, N, N), mask: (B, N)
         h = x
+        pooled = []
         for layer in self.layers:
             h = layer(h, adj)
-        # global sum pooling
-        maskf = mask.unsqueeze(-1).float()
-        h = h * maskf
-        g = h.sum(dim=1)  # (B, D)
-        out = self.classifier(g)
+            maskf = mask.unsqueeze(-1).float()
+            h_masked = h * maskf
+            g = h_masked.sum(dim=1)  # (B, D)
+            pooled.append(g)
+        # concat pooled representations from all layers
+        g_all = torch.cat(pooled, dim=1)
+        out = self.classifier(g_all)
         return out
 
 
@@ -195,21 +218,28 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--layers', type=int, default=4, help='number of GIN layers')
-    parser.add_argument('--epochs', type=int, default=50, help='training epochs')
+    parser.add_argument('--hidden-dim', type=int, default=128, help='hidden dimension')
+    parser.add_argument('--dropout', type=float, default=0.5, help='dropout rate')
+    parser.add_argument('--epochs', type=int, default=100, help='training epochs')
     parser.add_argument('--batch-size', type=int, default=16, help='batch size')
-    parser.add_argument('--out', type=str, default='training_curves.png', help='output image path')
+    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
+    parser.add_argument('--weight-decay', type=float, default=5e-4, help='weight decay')
+    parser.add_argument('--out', type=str, default='training_curves_improved.png', help='output image path')
     args = parser.parse_args()
 
     data_root = os.path.join(os.path.dirname(__file__), 'raw', 'GraphRNN', 'dataset', 'ENZYMES')
     graphs = load_enzymes(data_root)
-    # simple split
-    np.random.seed(42)
-    idx = np.random.permutation(len(graphs))
-    split = int(0.8 * len(graphs))
-    train_idx = idx[:split]
-    val_idx = idx[split:]
-    train_graphs = [graphs[i] for i in train_idx]
-    val_graphs = [graphs[i] for i in val_idx]
+    # stratified split preserving label distribution
+    labels = np.array([g.graph['label'] for g in graphs])
+    train_graphs = []
+    val_graphs = []
+    rng = np.random.RandomState(42)
+    for lbl in np.unique(labels):
+        inds = np.where(labels == lbl)[0]
+        rng.shuffle(inds)
+        split = int(0.8 * len(inds))
+        train_graphs += [graphs[i] for i in inds[:split]]
+        val_graphs += [graphs[i] for i in inds[split:]]
 
     train_ds = EnzymesDataset(train_graphs)
     val_ds = EnzymesDataset(val_graphs)
@@ -220,8 +250,9 @@ def main():
     # safe access to first node's feature vector
     first_node = list(train_graphs[0].nodes(data=True))[0]
     in_dim = first_node[1]['feature'].shape[0]
-    model = GIN(in_dim=in_dim, hidden_dim=64, num_layers=args.layers, num_classes=6).to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    model = GIN(in_dim=in_dim, hidden_dim=args.hidden_dim, num_layers=args.layers, num_classes=6, dropout=args.dropout).to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode='min', factor=0.5, patience=10)
 
     epochs = args.epochs
     train_losses, val_losses = [], []
@@ -229,6 +260,7 @@ def main():
     for ep in range(epochs):
         tr_loss, tr_acc = train_one_epoch(model, opt, train_loader, device)
         val_loss, val_acc = evaluate(model, val_loader, device)
+        scheduler.step(val_loss)
         train_losses.append(tr_loss)
         val_losses.append(val_loss)
         train_accs.append(tr_acc)
