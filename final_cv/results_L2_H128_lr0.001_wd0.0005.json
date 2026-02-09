@@ -1,0 +1,30 @@
+{
+  "combo": "L2_H128_lr0.001_wd0.0005",
+  "layers": 2,
+  "hidden": 128,
+  "lr": 0.001,
+  "weight_decay": 0.0005,
+  "mean_val": 0.6866666666666668,
+  "std_val": 0.033582402799349806,
+  "fold_best_vals": [
+    0.6833333333333333,
+    0.6333333333333333,
+    0.7333333333333333,
+    0.7083333333333334,
+    0.675
+  ],
+  "fold_best_epochs": [
+    139,
+    82,
+    167,
+    164,
+    100
+  ],
+  "fold_models": [
+    "C:\\Users\\liujiarui\\OpenDataLab___ENZYMES\\final_cv\\best_L2_H128_lr0.001_wd0.0005_fold1.pth",
+    "C:\\Users\\liujiarui\\OpenDataLab___ENZYMES\\final_cv\\best_L2_H128_lr0.001_wd0.0005_fold2.pth",
+    "C:\\Users\\liujiarui\\OpenDataLab___ENZYMES\\final_cv\\best_L2_H128_lr0.001_wd0.0005_fold3.pth",
+    "C:\\Users\\liujiarui\\OpenDataLab___ENZYMES\\final_cv\\best_L2_H128_lr0.001_wd0.0005_fold4.pth",
+    "C:\\Users\\liujiarui\\OpenDataLab___ENZYMES\\final_cv\\best_L2_H128_lr0.001_wd0.0005_fold5.pth"
+  ]
+}
