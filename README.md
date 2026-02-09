@@ -40,6 +40,18 @@
   ```
 
   我也保存了每个配置的最优模型（例如 `best_model_L2.pth`），可用于后续微调或评估。
+  
+  **交叉验证（k-fold）结果与图表**
+  - 针对最优组合 `L2_H128_lr0.001_wd0.0005` 我做了 5-fold 交叉验证，平均验证准确率：约 0.687（std ≈ 0.033）。
+  - 每折的最佳验证准确率和对应的 epoch 已保存于 `final_cv/results_L2_H128_lr0.001_wd0.0005.json`。
+  - 我还生成了可视化图表，保存在 `figures/`：
+    - `figures/fold_best_accuracies.png`：每折的最佳验证准确率柱状图。
+    - `figures/fold_epoch_vs_acc.png`：每折最佳准确率对应的 epoch 散点图。
+
+  **模型权重与上传说明**
+  - 模型权重位置：`final_cv/best_overall.pth`（以及每折的 `best_...foldN.pth`）。
+  - 注意：如果权重文件较大（>50MB），建议使用 Git LFS 或把权重放到 GitHub Releases / 私有云盘再在 README 中添加下载链接。本仓库当前包含训练产生的小型权重文件；如果你希望我把大型权重推到远程仓库，我可以帮你把文件迁移到 Release 或配置 Git LFS（需要你的授权与网络访问）。
+
 @article{borgwardt2005protein,
 title={Protein function prediction via graph kernels},
 author={Borgwardt, Karsten M and Ong, Cheng Soon and Sch{\"o}nauer, Stefan and Vishwanathan, SVN and Smola, Alex J and Kriegel, Hans-Peter},
